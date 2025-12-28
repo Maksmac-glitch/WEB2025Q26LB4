@@ -75,7 +75,7 @@ function mountUI() {
       el(
         "section",
         { className: "panel" },
-        el("div", { className: "title-row" }, el("h2", { id: "loc-title", text: "Демо" }), el("div", { id: "loc-status", className: "status", text: "—" })),
+        el("div", { className: "title-row" }, el("h2", { id: "loc-title", text: "Текущее местоположение" }), el("div", { id: "loc-status", className: "status", text: "—" })),
         el("div", { id: "cards", className: "cards" })
       ),
       el(
@@ -85,7 +85,7 @@ function mountUI() {
         el("div", { className: "input-row" }, el("input", { id: "city-input", className: "input", placeholder: "Добавить город" }), el("button", { id: "btn-add", className: "btn btn-ghost", type: "button", text: "Добавить" })),
         el("div", { id: "city-error", className: "err", text: "" }),
         el("div", { id: "chips" }),
-        el("div", { id: "status", className: "status", text: "—" })
+        el("div", { id: "status", className: "status", text: "Если гео отклонено — добавьте город" })
       )
     )
   );
@@ -160,6 +160,24 @@ async function loadForecastFor(lat, lon, titleText) {
   }
 }
 
-dom.refresh.addEventListener("click", () => loadForecastFor(59.9386, 30.3141, "Санкт-Петербург"));
+function requestGeo() {
+  setStatus("Запрашиваем геолокацию…");
 
-loadForecastFor(59.9386, 30.3141, "Санкт-Петербург");
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      const lat = pos.coords.latitude;
+      const lon = pos.coords.longitude;
+      loadForecastFor(lat, lon, "Текущее местоположение");
+    },
+    () => {
+      setStatus("Геолокация отклонена — добавьте город справа");
+      dom.title.textContent = "Нет локации";
+      clearNode(dom.cards);
+    },
+    { enableHighAccuracy: true, timeout: 8000 }
+  );
+}
+
+dom.refresh.addEventListener("click", requestGeo);
+
+requestGeo();
