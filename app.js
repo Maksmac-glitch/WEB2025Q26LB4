@@ -82,7 +82,17 @@ function mountUI() {
         "aside",
         { className: "panel sidebar" },
         el("h3", { text: "Города" }),
-        el("div", { className: "input-row" }, el("input", { id: "city-input", className: "input", placeholder: "Добавить город" }), el("button", { id: "btn-add", className: "btn btn-ghost", type: "button", text: "Добавить" })),
+        el(
+          "div",
+          { className: "input-row" },
+          el(
+            "div",
+            { className: "dropdown", style: "flex:1" },
+            el("input", { id: "city-input", className: "input", placeholder: "Добавить город" }),
+            el("div", { id: "suggest", className: "suggest", style: "display:none" })
+          ),
+          el("button", { id: "btn-add", className: "btn btn-ghost", type: "button", text: "Добавить" })
+        ),
         el("div", { id: "city-error", className: "err", text: "" }),
         el("div", { id: "chips" }),
         el("div", { id: "status", className: "status", text: "Если гео отклонено — добавьте город" })
@@ -100,7 +110,11 @@ const dom = {
   title: qs("#loc-title"),
   status: qs("#loc-status"),
   cards: qs("#cards"),
-  refresh: qs("#btn-refresh")
+  refresh: qs("#btn-refresh"),
+  input: qs("#city-input"),
+  suggest: qs("#suggest"),
+  addBtn: qs("#btn-add"),
+  err: qs("#city-error")
 };
 
 function setStatus(text) {
@@ -177,6 +191,102 @@ function requestGeo() {
     { enableHighAccuracy: true, timeout: 8000 }
   );
 }
+
+async function geoSuggest(q) {
+  const url = new URL("https://geocoding-api.open-meteo.com/v1/search");
+  url.search = new URLSearchParams({
+    name: q,
+    count: "5",
+    language: "ru"
+  }).toString();
+
+  const res = await fetch(url.toString());
+  if (!res.ok) return [];
+  const data = await res.json();
+
+  return (data.results || []).map((x) => ({
+    id: String(x.id),
+    name: x.name + (x.country ? `, ${x.country}` : ""),
+    lat: x.latitude,
+    lon: x.longitude
+  }));
+}
+
+function showSuggest(items) {
+  clearNode(dom.suggest);
+
+  if (!items.length) {
+    dom.suggest.style.display = "none";
+    return;
+  }
+
+  for (const it of items) {
+    const b = el("button", { type: "button" }, it.name);
+    b.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dom.input.value = it.name;
+      dom.input.dataset.selId = it.id;
+      dom.input.dataset.lat = String(it.lat);
+      dom.input.dataset.lon = String(it.lon);
+      dom.suggest.style.display = "none";
+      dom.err.textContent = "";
+    });
+    dom.suggest.appendChild(b);
+  }
+
+  dom.suggest.style.display = "block";
+}
+
+function debounce(fn, ms) {
+  let t;
+  return (...args) => {
+    clearTimeout(t);
+    t = setTimeout(() => fn(...args), ms);
+  };
+}
+
+const onType = debounce(async () => {
+  const q = dom.input.value.trim();
+  dom.err.textContent = "";
+  dom.input.removeAttribute("data-sel-id");
+  if (q.length < 2) {
+    dom.suggest.style.display = "none";
+    return;
+  }
+  const list = await geoSuggest(q);
+  showSuggest(list);
+}, 300);
+
+dom.input.addEventListener("input", onType);
+
+document.addEventListener("pointerdown", (e) => {
+  if (!dom.suggest.contains(e.target) && e.target !== dom.input) {
+    dom.suggest.style.display = "none";
+  }
+});
+
+dom.addBtn.addEventListener("click", (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+
+  const id = dom.input.dataset.selId;
+  const lat = Number(dom.input.dataset.lat);
+  const lon = Number(dom.input.dataset.lon);
+  const name = dom.input.value.trim();
+
+  if (!id || !name) {
+    dom.err.textContent = "Выберите город из выпадающего списка";
+    return;
+  }
+
+  dom.input.value = "";
+  dom.input.removeAttribute("data-sel-id");
+  dom.suggest.style.display = "none";
+  dom.err.textContent = "";
+
+  loadForecastFor(lat, lon, name);
+});
 
 dom.refresh.addEventListener("click", requestGeo);
 
