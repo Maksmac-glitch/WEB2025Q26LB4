@@ -19,10 +19,14 @@ function clearNode(node) {
   while (node.firstChild) node.removeChild(node.firstChild);
 }
 
-const fmtDay = (d) => new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "2-digit" }).format(d);
-const todayLabel = (idx, date) => (idx === 0 ? "Сегодня" : idx === 1 ? "Завтра" : fmtDay(date));
+const fmtDay = (d) =>
+  new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "2-digit" }).format(d);
+
+const todayLabel = (idx, date) =>
+  idx === 0 ? "Сегодня" : idx === 1 ? "Завтра" : fmtDay(date);
 
 const KEY = "wx-state-v1";
+const KEY_UNIT = "wx-unit";
 
 function loadState() {
   try {
@@ -82,7 +86,27 @@ function mountUI() {
       "header",
       { className: "header" },
       el("h1", { text: "Погода" }),
-      el("div", { className: "actions" }, el("button", { id: "btn-refresh", className: "btn btn-primary", type: "button", text: "Обновить" }))
+      el(
+        "div",
+        { className: "actions" },
+        el(
+          "div",
+          { id: "unit-toggle", className: "unit-toggle" },
+          el("span", { text: "Ед." }),
+          el(
+            "span",
+            { className: "pill" },
+            el("button", { id: "u-c", className: "seg", type: "button", text: "°C" }),
+            el("button", { id: "u-f", className: "seg", type: "button", text: "°F" })
+          )
+        ),
+        el("button", {
+          id: "btn-refresh",
+          className: "btn btn-primary",
+          type: "button",
+          text: "Обновить"
+        })
+      )
     ),
     el(
       "div",
@@ -90,7 +114,12 @@ function mountUI() {
       el(
         "section",
         { className: "panel" },
-        el("div", { className: "title-row" }, el("h2", { id: "loc-title", text: "—" }), el("div", { id: "loc-status", className: "status", text: "—" })),
+        el(
+          "div",
+          { className: "title-row" },
+          el("h2", { id: "loc-title", text: "—" }),
+          el("div", { id: "loc-status", className: "status", text: "—" })
+        ),
         el("div", { id: "cards", className: "cards" })
       ),
       el(
@@ -103,14 +132,27 @@ function mountUI() {
           el(
             "div",
             { className: "dropdown", style: "flex:1" },
-            el("input", { id: "city-input", className: "input", placeholder: "Добавить город" }),
-            el("div", { id: "suggest", className: "suggest", style: "display:none" })
+            el("input", {
+              id: "city-input",
+              className: "input",
+              placeholder: "Добавить город"
+            }),
+            el("div", {
+              id: "suggest",
+              className: "suggest",
+              style: "display:none"
+            })
           ),
-          el("button", { id: "btn-add", className: "btn btn-ghost", type: "button", text: "Добавить" })
+          el("button", {
+            id: "btn-add",
+            className: "btn btn-ghost",
+            type: "button",
+            text: "Добавить"
+          })
         ),
         el("div", { id: "city-error", className: "err", text: "" }),
         el("div", { id: "chips", className: "chips" }),
-        el("div", { id: "status", className: "status", text: "Данные сохраняются локально" })
+        el("div", { id: "status", className: "status"})
       )
     )
   );
@@ -130,7 +172,9 @@ const dom = {
   suggest: qs("#suggest"),
   addBtn: qs("#btn-add"),
   err: qs("#city-error"),
-  chips: qs("#chips")
+  chips: qs("#chips"),
+  uC: qs("#u-c"),
+  uF: qs("#u-f")
 };
 
 let state = loadState();
@@ -141,8 +185,27 @@ if (!state) {
   };
 }
 
+let unit = localStorage.getItem(KEY_UNIT) || "C";
+
 function setStatus(text) {
   dom.status.textContent = text;
+}
+
+function toUnitC(x) {
+  return Math.round(x);
+}
+
+function toUnitF(x) {
+  return Math.round((x * 9) / 5 + 32);
+}
+
+function applyUnitButtons() {
+  dom.uC.classList.toggle("active", unit === "C");
+  dom.uF.classList.toggle("active", unit === "F");
+}
+
+function tempInUnit(vC) {
+  return unit === "F" ? toUnitF(vC) : toUnitC(vC);
 }
 
 async function fetchForecast(lat, lon) {
@@ -169,16 +232,17 @@ function renderCards(data) {
     const date = new Date(days[i]);
     const code = data.daily.weathercode[i];
     const info = wInfo(code);
-    const max = Math.round(data.daily.temperature_2m_max[i]);
-    const min = Math.round(data.daily.temperature_2m_min[i]);
+
+    const max = tempInUnit(data.daily.temperature_2m_max[i]);
+    const min = tempInUnit(data.daily.temperature_2m_min[i]);
 
     dom.cards.appendChild(
       el(
         "div",
         { className: "card" },
         el("div", { className: "day", text: todayLabel(i, date) }),
-        el("div", { className: "temp", text: `${max}° ${info.i}` }),
-        el("div", { className: "sub", text: `мин ${min}°  •  ${info.t}` })
+        el("div", { className: "temp", text: `${max}°${unit} ${info.i}` }),
+        el("div", { className: "sub", text: `мин ${min}°${unit}  •  ${info.t}` })
       )
     );
   }
@@ -201,12 +265,13 @@ async function loadForecastFor(loc) {
   }
 }
 
-
 function renderChips() {
   clearNode(dom.chips);
 
   for (const loc of state.locations) {
-    const chip = el("div", { className: "chip" + (loc.id === state.selectedId ? " active" : "") });
+    const chip = el("div", {
+      className: "chip" + (loc.id === state.selectedId ? " active" : "")
+    });
 
     if (!loc.isGeo) {
       const rm = el("button", { className: "rm", type: "button", title: "Удалить" }, "✕");
@@ -406,6 +471,24 @@ dom.refresh.addEventListener("click", async () => {
   } else {
     requestGeo();
   }
+});
+
+applyUnitButtons();
+
+dom.uC.addEventListener("click", () => {
+  unit = "C";
+  localStorage.setItem(KEY_UNIT, unit);
+  applyUnitButtons();
+  const cur = state.locations.find((x) => x.id === state.selectedId);
+  if (cur) loadForecastFor(cur);
+});
+
+dom.uF.addEventListener("click", () => {
+  unit = "F";
+  localStorage.setItem(KEY_UNIT, unit);
+  applyUnitButtons();
+  const cur = state.locations.find((x) => x.id === state.selectedId);
+  if (cur) loadForecastFor(cur);
 });
 
 renderChips();
