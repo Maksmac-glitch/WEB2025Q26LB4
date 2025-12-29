@@ -205,3 +205,39 @@ body {
 .suggest button:last-child {
   border-bottom: none;
 }
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #0c1527;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 6px 8px;
+}
+
+.chip.active {
+  outline: 2px solid var(--accent);
+}
+
+.chip .rm {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.chip .name {
+  background: transparent;
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+  padding: 0 4px;
+}

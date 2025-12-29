@@ -22,6 +22,21 @@ function clearNode(node) {
 const fmtDay = (d) => new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "2-digit" }).format(d);
 const todayLabel = (idx, date) => (idx === 0 ? "Сегодня" : idx === 1 ? "Завтра" : fmtDay(date));
 
+const KEY = "wx-state-v1";
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveState(s) {
+  localStorage.setItem(KEY, JSON.stringify(s));
+}
+
 const W = {
   0: { i: "☀️", t: "Ясно" },
   1: { i: "🌤️", t: "Преимущественно ясно" },
@@ -75,7 +90,7 @@ function mountUI() {
       el(
         "section",
         { className: "panel" },
-        el("div", { className: "title-row" }, el("h2", { id: "loc-title", text: "Текущее местоположение" }), el("div", { id: "loc-status", className: "status", text: "—" })),
+        el("div", { className: "title-row" }, el("h2", { id: "loc-title", text: "—" }), el("div", { id: "loc-status", className: "status", text: "—" })),
         el("div", { id: "cards", className: "cards" })
       ),
       el(
@@ -94,8 +109,8 @@ function mountUI() {
           el("button", { id: "btn-add", className: "btn btn-ghost", type: "button", text: "Добавить" })
         ),
         el("div", { id: "city-error", className: "err", text: "" }),
-        el("div", { id: "chips" }),
-        el("div", { id: "status", className: "status", text: "Если гео отклонено — добавьте город" })
+        el("div", { id: "chips", className: "chips" }),
+        el("div", { id: "status", className: "status", text: "Данные сохраняются локально" })
       )
     )
   );
@@ -114,8 +129,17 @@ const dom = {
   input: qs("#city-input"),
   suggest: qs("#suggest"),
   addBtn: qs("#btn-add"),
-  err: qs("#city-error")
+  err: qs("#city-error"),
+  chips: qs("#chips")
 };
+
+let state = loadState();
+if (!state) {
+  state = {
+    locations: [],
+    selectedId: null
+  };
+}
 
 function setStatus(text) {
   dom.status.textContent = text;
@@ -160,12 +184,12 @@ function renderCards(data) {
   }
 }
 
-async function loadForecastFor(lat, lon, titleText) {
-  dom.title.textContent = titleText;
+async function loadForecastFor(loc) {
+  dom.title.textContent = loc.isGeo ? "Текущее местоположение" : loc.name;
   setStatus("Загрузка…");
 
   try {
-    const data = await fetchForecast(lat, lon);
+    const data = await fetchForecast(loc.lat, loc.lon);
     renderCards(data);
     setStatus("Готово");
   } catch {
@@ -174,17 +198,87 @@ async function loadForecastFor(lat, lon, titleText) {
   }
 }
 
+function renderChips() {
+  clearNode(dom.chips);
+
+  for (const loc of state.locations) {
+    const chip = el("div", { className: "chip" + (loc.id === state.selectedId ? " active" : "") });
+
+    if (!loc.isGeo) {
+      const rm = el("button", { className: "rm", type: "button", title: "Удалить" }, "✕");
+      rm.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        removeCity(loc.id);
+      });
+      chip.appendChild(rm);
+    } else {
+      chip.appendChild(el("span", { className: "rm", text: "📍" }));
+    }
+
+    const nameBtn = el("button", { className: "name", type: "button" }, loc.isGeo ? "Текущее местоположение" : loc.name);
+    nameBtn.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      selectCity(loc.id);
+    });
+
+    chip.appendChild(nameBtn);
+    dom.chips.appendChild(chip);
+  }
+}
+
+function selectCity(id) {
+  const loc = state.locations.find((x) => x.id === id);
+  if (!loc) return;
+  state.selectedId = id;
+  saveState(state);
+  renderChips();
+  loadForecastFor(loc);
+}
+
+function removeCity(id) {
+  const loc = state.locations.find((x) => x.id === id);
+  if (!loc || loc.isGeo) return;
+
+  state.locations = state.locations.filter((x) => x.id !== id);
+
+  if (state.selectedId === id) {
+    state.selectedId = state.locations[0]?.id || null;
+  }
+
+  saveState(state);
+  renderChips();
+
+  if (state.selectedId) {
+    const cur = state.locations.find((x) => x.id === state.selectedId);
+    if (cur) loadForecastFor(cur);
+  } else {
+    dom.title.textContent = "Нет локации";
+    clearNode(dom.cards);
+    setStatus("—");
+  }
+}
+
+function upsertGeo(lat, lon) {
+  const geo = { id: "geo", isGeo: true, lat, lon, name: "Текущее местоположение" };
+  const other = state.locations.filter((x) => !x.isGeo);
+  state.locations = [geo, ...other];
+  state.selectedId = "geo";
+  saveState(state);
+  renderChips();
+  loadForecastFor(geo);
+}
+
 function requestGeo() {
   setStatus("Запрашиваем геолокацию…");
 
   navigator.geolocation.getCurrentPosition(
     (pos) => {
-      const lat = pos.coords.latitude;
-      const lon = pos.coords.longitude;
-      loadForecastFor(lat, lon, "Текущее местоположение");
+      upsertGeo(pos.coords.latitude, pos.coords.longitude);
     },
     () => {
-      setStatus("Геолокация отклонена — добавьте город справа");
+      setStatus("Геолокация отклонена — добавьте город");
       dom.title.textContent = "Нет локации";
       clearNode(dom.cards);
     },
@@ -250,10 +344,12 @@ const onType = debounce(async () => {
   const q = dom.input.value.trim();
   dom.err.textContent = "";
   dom.input.removeAttribute("data-sel-id");
+
   if (q.length < 2) {
     dom.suggest.style.display = "none";
     return;
   }
+
   const list = await geoSuggest(q);
   showSuggest(list);
 }, 300);
@@ -280,14 +376,38 @@ dom.addBtn.addEventListener("click", (e) => {
     return;
   }
 
+  if (state.locations.some((x) => x.id === id)) {
+    dom.err.textContent = "Город уже добавлен";
+    return;
+  }
+
+  const loc = { id, name, lat, lon, isGeo: false };
+  state.locations.push(loc);
+  state.selectedId = id;
+  saveState(state);
+
   dom.input.value = "";
   dom.input.removeAttribute("data-sel-id");
   dom.suggest.style.display = "none";
   dom.err.textContent = "";
 
-  loadForecastFor(lat, lon, name);
+  renderChips();
+  loadForecastFor(loc);
 });
 
-dom.refresh.addEventListener("click", requestGeo);
+dom.refresh.addEventListener("click", async () => {
+  const cur = state.locations.find((x) => x.id === state.selectedId);
+  if (cur) loadForecastFor(cur);
+  else requestGeo();
+});
 
-requestGeo();
+/* initial restore */
+renderChips();
+
+if (state.selectedId) {
+  const cur = state.locations.find((x) => x.id === state.selectedId);
+  if (cur) loadForecastFor(cur);
+  else requestGeo();
+} else {
+  requestGeo();
+}
