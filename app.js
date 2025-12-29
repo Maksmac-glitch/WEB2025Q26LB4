@@ -187,6 +187,7 @@ function renderCards(data) {
 async function loadForecastFor(loc) {
   dom.title.textContent = loc.isGeo ? "Текущее местоположение" : loc.name;
   setStatus("Загрузка…");
+  dom.refresh.disabled = true;
 
   try {
     const data = await fetchForecast(loc.lat, loc.lon);
@@ -195,8 +196,11 @@ async function loadForecastFor(loc) {
   } catch {
     clearNode(dom.cards);
     setStatus("Ошибка загрузки прогноза");
+  } finally {
+    dom.refresh.disabled = false;
   }
 }
+
 
 function renderChips() {
   clearNode(dom.chips);
@@ -397,11 +401,13 @@ dom.addBtn.addEventListener("click", (e) => {
 
 dom.refresh.addEventListener("click", async () => {
   const cur = state.locations.find((x) => x.id === state.selectedId);
-  if (cur) loadForecastFor(cur);
-  else requestGeo();
+  if (cur) {
+    await loadForecastFor(cur);
+  } else {
+    requestGeo();
+  }
 });
 
-/* initial restore */
 renderChips();
 
 if (state.selectedId) {
